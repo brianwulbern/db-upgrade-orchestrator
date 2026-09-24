@@ -1,0 +1,14 @@
+# dumps.local.example — copy to `dumps.local` (git-ignored) and edit for YOUR machine.
+#
+# Each machine's dumps are often named differently from the shared catalog. This file remaps a
+# database id (the modl, field 4 of the catalog) to the actual filename, or a glob, on THIS box,
+# so make_manifest.sh finds them without editing the shared catalog.
+#
+# Format, one per line:   <modl> = <filename-or-glob>
+#   - matched case-insensitively against catalog field 4
+#   - value may be an exact filename or a glob; a glob must match exactly one file on disk
+#   - paths are relative to the repo root
+#
+# Examples:
+# customer-a = app-dump-postgres-2025-08-18.sql
+# customer-b = *customer-b*dump*.sql

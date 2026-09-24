@@ -1,0 +1,15 @@
+# generated run output
+batch-runs/
+*.log
+# extracted bundles (generated)
+*-bundle/
+# local, per-machine dump-name overrides (dumps.local.example is the committed template)
+dumps.local
+# generated manifests
+*.gen
+# real dumps must never be committed
+*.sql
+*.bak
+*.dmp
+*.gz
+*.7z
