@@ -95,6 +95,7 @@ BATCH_RUN_TS=$(date +%Y%m%d-%H%M%S) ./batch_upgrade.sh --dry-run sample.manifest
 | `dumps.local.example` | Template for per-machine dump-name overrides. |
 | `demo.sh` | Runs the mock batch with demo-appropriate settings. |
 
-## License
+## Notice
 
-MIT. See `LICENSE`.
+Internal working tooling. All rights reserved, no license granted.
+See `NOTICE.md`.
