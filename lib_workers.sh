@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# lib_workers.sh — MOCK worker library for the public demo.
+# lib_workers.sh: MOCK worker library for the public demo.
 #
 # In the real internal tool, this is a large library that, per database engine, starts a throwaway
 # Docker container, imports a customer database dump, and runs the vendor's db_upgrade_client against
@@ -26,16 +26,27 @@ ensure_es8() {
   return 0
 }
 
-_mock_import() {   # <engine> <name>
-  local engine="$1" name="$2"
+# Real password lookup for compressed dumps (see lib_dumps.sh); only the decompression is simulated.
+source "$(dirname "${BASH_SOURCE[0]}")/lib_dumps.sh"
+
+_mock_import() {   # <engine> <name> [dump]
+  local engine="$1" name="$2" dump="${3:-}"
+  if [[ "$dump" == *.7z ]]; then
+    local pv; pv="$(sevenz_pw_var "$dump")"
+    if [[ -n "$pv" ]]; then
+      echo "  [mock import] $engine: '$dump' is a 7z archive; password from \$$pv (decompression simulated)"
+    else
+      echo "  [mock import] $engine: '$dump' is a 7z archive but no password variable is set; a real import would fail fast here"
+    fi
+  fi
   echo "  [mock import] $engine: importing '$name' (simulated)"
   sleep 1
   return 0
 }
-import_mysql_dump()     { _mock_import mysql "${2:-$1}"; }
-import_pg_dump()        { _mock_import postgres "${2:-$1}"; }
-import_sqlserver_bak()  { _mock_import sqlserver "${2:-$1}"; }
-import_oracle_dmp()     { _mock_import oracle "${2:-$1}"; }
+import_mysql_dump()     { _mock_import mysql "${2:-$1}" "$1"; }
+import_pg_dump()        { _mock_import postgres "${2:-$1}" "$1"; }
+import_sqlserver_bak()  { _mock_import sqlserver "${2:-$1}" "$1"; }
+import_oracle_dmp()     { _mock_import oracle "${2:-$1}" "$1"; }
 
 # upgrade_app <folder_id> <schema> <sub_choice> <db_type>
 # Writes the bundle log the scheduler parses. For the id "customer-fail-once" it fails on the first

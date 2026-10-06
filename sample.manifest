@@ -3,7 +3,7 @@
 # offset/es_mode/flags are notes only; the scheduler assigns its own slot and always uses remote ES.
 mysql     | customer-a.sql          | customer_a          | customer-a          | 1 | 4096 | remote | -
 postgres  | customer-b.sql          | customer_b          | customer-b          | 2 | 4096 | remote | -
-sqlserver | customer-c.bak          | customer-c          | customer-c          | 3 | 6144 | remote | -
+sqlserver | customer-c.bak.7z       | customer-c          | customer-c          | 3 | 6144 | remote | -
 oracle    | customer-d.dmp          | customer_d          | customer-d          | 4 | 8192 | remote | -
 mysql     | customer-e.sql          | customer_e          | customer-e          | 5 | 4096 | remote | -
 postgres  | customer-f.sql          | customer_f          | customer-f          | 6 | 4096 | remote | -

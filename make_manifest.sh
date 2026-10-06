@@ -74,10 +74,22 @@ resolve_dump() {
   ov="${OVERRIDE[$(lc "$modl")]:-}"
   [[ -n "$ov" ]] && pat="$ov"
   [[ -f "$pat" ]] && { printf '%s' "$pat"; return 0; }
+  # A dump may be downloaded still compressed: foo.sql.7z / .gz / .zip (the MySQL and Postgres
+  # importers stream all three) or foo.bak.7z (the SQL Server restore streams it into the
+  # container). Accept the compressed copy as-is.
+  local ext exts=()
+  case "$pat" in *.sql) exts=(7z gz zip) ;; *.bak) exts=(7z) ;; esac
+  for ext in "${exts[@]}"; do
+    [[ -f "$pat.$ext" ]] && { printf '%s' "$pat.$ext"; return 0; }
+  done
   # Only glob-expand when the pattern actually contains glob metacharacters — otherwise a literal,
   # non-existent filename would pass through nullglob unchanged and look like a single match.
   if [[ "$pat" == *[\*\?\[]* ]]; then
-    local -a m; shopt -s nullglob; m=( $pat ); shopt -u nullglob
+    local -a m; shopt -s nullglob; m=( $pat )
+    if (( ${#m[@]} == 0 )); then
+      case "$pat" in *.sql) m=( $pat.7z $pat.gz $pat.zip ) ;; *.bak) m=( $pat.7z ) ;; esac
+    fi
+    shopt -u nullglob
     case ${#m[@]} in
       0) return 1 ;;
       1) printf '%s' "${m[0]}"; return 0 ;;

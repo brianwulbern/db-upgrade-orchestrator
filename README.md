@@ -53,6 +53,19 @@ a git-ignored `dumps.local` file lets each machine map a database id to its actu
 editing the shared catalog. A name that matches nothing is reported, and a glob that matches more than
 one file is reported as ambiguous rather than guessed.
 
+Dumps also arrive still compressed. If the catalog names `foo.sql` and only `foo.sql.7z`, `.gz` or
+`.zip` is present (or `foo.bak.7z` for a SQL Server backup), the compressed file is used as-is and
+streamed into the database, so nobody has to extract or rename anything first.
+
+### Password-protected dumps
+
+Shared dumps are often 7z archives with encrypted headers, each with its own password. A headless batch
+cannot answer a password prompt, so `lib_dumps.sh` looks the password up from the environment by
+filename: `DUMPS_<NAME>_7Z_PASSWORD`, where `<NAME>` is a word from the dump's filename, matched ignoring
+case and punctuation, with the longest match winning (so `DUMPS_CUSTOMER_C_7Z_PASSWORD` beats a broader
+`DUMPS_CUSTOMER_7Z_PASSWORD` for `customer-c.bak.7z`). `DUMPS_7Z_PASSWORD` is the fallback. With no
+password the import fails immediately instead of hanging the run.
+
 ### Version-driven database sets
 
 A bundle version selects which set of databases to validate via `release_sets.conf`, so one parameter
@@ -86,6 +99,7 @@ BATCH_RUN_TS=$(date +%Y%m%d-%H%M%S) ./batch_upgrade.sh --dry-run sample.manifest
 |---|---|
 | `batch_upgrade.sh` | The scheduler: budget, admission, concurrency, retry, summary. |
 | `lib_workers.sh` | Mock engine workers for the demo (the real ones are internal). |
+| `lib_dumps.sh` | Per-dump 7z password lookup and streaming decompression for compressed dumps. |
 | `lib_diagnostics.sh` | Result classification and error-blurb extraction from an upgrade log. |
 | `make_manifest.sh` | Builds a run manifest from the catalog: version sets, `--only`, `--skip`, dump resolution. |
 | `status_batch.sh` | At-a-glance per-database status of a run, plus `--oneline` for CI. |
