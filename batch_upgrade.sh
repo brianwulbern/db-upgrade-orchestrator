@@ -97,6 +97,10 @@ WORKER_LIB="$SCRIPT_DIR/lib_workers.sh"
 DIAG_LIB="$SCRIPT_DIR/lib_diagnostics.sh"
 RUN_DIR="$SCRIPT_DIR/batch-runs/$BATCH_RUN_TS"
 
+# Toolkit version plus the commit it ran from, so every run records which logic produced its results.
+source "$SCRIPT_DIR/lib_version.sh"
+TOOLKIT_ID="$(toolkit_id)"
+
 # ------------------------------------------------------------------ RAM / caps config
 _memtotal_kb="$(awk '/^MemTotal:/ {print $2}' /proc/meminfo 2>/dev/null)"
 [[ -z "$_memtotal_kb" ]] && _memtotal_kb=0
@@ -284,6 +288,7 @@ print_budget_header() {
   echo " Database Upgrade — Batch Plan"
   echo "================================================================"
   echo " run timestamp     : $BATCH_RUN_TS"
+  echo " toolkit           : $TOOLKIT_ID"
   echo " manifest          : $MANIFEST"
   echo " total host RAM    : ${TOTAL_RAM_MB} MB"
   echo " reserve (host)    : ${RESERVE_MB} MB"
@@ -650,6 +655,7 @@ admit_job() {
 
 write_summary() {
   local out="$RUN_DIR/summary.txt"
+  local BUNDLE_V; BUNDLE_V="$(cat "$RUN_DIR/version.txt" 2>/dev/null)"
   # Rebuild rows + tallies from the result store (retry-aware: one row per modl, latest result).
   SUMMARY_ROWS=(); PASS_N=0; FAIL_N=0; NOSTART_N=0
   local _m
@@ -664,6 +670,7 @@ write_summary() {
   {
     echo "================================================================"
     echo " Batch Upgrade Summary — run $BATCH_RUN_TS"
+    echo " toolkit $TOOLKIT_ID / bundle ${BUNDLE_V:-unknown}"
     echo "================================================================"
     printf "%-16s %-10s %-14s %s\n" "MODL" "ENGINE" "RESULT" "NOTES"
     printf "%-16s %-10s %-14s %s\n" "----" "------" "------" "-----"
@@ -683,6 +690,8 @@ write_summary() {
   local md="$RUN_DIR/SUMMARY.md" row modl engine result note icon
   {
     echo "# Batch Upgrade — $BATCH_RUN_TS"
+    echo
+    echo "Toolkit \`$TOOLKIT_ID\`, bundle \`${BUNDLE_V:-unknown}\`"
     echo
     echo "**${PASS_N} passed / ${FAIL_N} failed / ${NOSTART_N} did-not-start**"
     echo
@@ -768,6 +777,7 @@ real_run() {
   # Record the bundle version this run targets, so cross-run tooling (rollup_status.sh)
   # can scope "is every DB green?" to a specific release instead of mixing q3.1 / q3.2.
   detect_bundle_version > "$RUN_DIR/version.txt" 2>/dev/null || true
+  echo "$TOOLKIT_ID" > "$RUN_DIR/toolkit.txt"
   # Record the JIRA parent validation Task so `./jira_reconcile.sh` at the end is zero-friction.
   [[ -n "${BATCH_JIRA_TASK:-}" ]] && echo "$BATCH_JIRA_TASK" > "$RUN_DIR/jira_task.txt"
   print_budget_header

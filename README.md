@@ -72,6 +72,13 @@ A bundle version selects which set of databases to validate via `release_sets.co
 drives both the artifact and the set. `make_manifest.sh` builds a run manifest from the catalog,
 including only entries whose dump is present, with `--only` and `--skip` to scope a run.
 
+### Versioned runs
+
+The toolkit version lives in `VERSION`, with a git tag per version. Every run records the version and
+the commit it ran from (e.g. `v3.9.2 (1a2b3c4)`) in `batch-runs/<ts>/toolkit.txt`, the run banner, the
+summary, and `status_batch.sh` output, with a `+local-changes` suffix when tracked files had
+uncommitted edits. When two people compare results, that line says whether they ran the same logic.
+
 ### Status and triage
 
 `status_batch.sh` prints a per-database status snapshot at any time, mid-run or after (PASS, FAIL,
@@ -100,6 +107,7 @@ BATCH_RUN_TS=$(date +%Y%m%d-%H%M%S) ./batch_upgrade.sh --dry-run sample.manifest
 | `batch_upgrade.sh` | The scheduler: budget, admission, concurrency, retry, summary. |
 | `lib_workers.sh` | Mock engine workers for the demo (the real ones are internal). |
 | `lib_dumps.sh` | Per-dump 7z password lookup and streaming decompression for compressed dumps. |
+| `lib_version.sh` | Toolkit version plus commit, stamped into every run. |
 | `lib_diagnostics.sh` | Result classification and error-blurb extraction from an upgrade log. |
 | `make_manifest.sh` | Builds a run manifest from the catalog: version sets, `--only`, `--skip`, dump resolution. |
 | `status_batch.sh` | At-a-glance per-database status of a run, plus `--oneline` for CI. |

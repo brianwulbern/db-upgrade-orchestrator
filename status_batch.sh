@@ -96,13 +96,14 @@ STATE_WORD="$(state_word)"
 
 # ---- --oneline: one grep-able line for a CI status step -----------------------------------------
 if [[ "$ONELINE" == 1 ]]; then
-  echo "run=$RUN_TS state=$STATE_WORD total=${#ROSTER[@]} running=$n_run passed=$n_pass failed=$n_fail queued=$n_queue did-not-start=$n_nostart"
+  echo "run=$RUN_TS state=$STATE_WORD total=${#ROSTER[@]} running=$n_run passed=$n_pass failed=$n_fail queued=$n_queue did-not-start=$n_nostart toolkit=$(cut -d' ' -f1 "$RUN_DIR/toolkit.txt" 2>/dev/null || echo unknown)"
   exit 0
 fi
 
 echo "──────────────────────────────────────────────"
 echo " batch run : $RUN_TS"
-[[ -r "$RUN_DIR/version.txt" ]] && echo " bundle    : $(cat "$RUN_DIR/version.txt")"
+[[ -s "$RUN_DIR/version.txt" ]] && echo " bundle    : $(cat "$RUN_DIR/version.txt")"
+[[ -r "$RUN_DIR/toolkit.txt" ]] && echo " toolkit   : $(cat "$RUN_DIR/toolkit.txt")"
 if [[ "$FINISHED" == 1 ]]; then
   if [[ -n "$started" ]]; then
     end="$(stat -c %Y "$RUN_DIR/summary.txt" 2>/dev/null || echo "")"
