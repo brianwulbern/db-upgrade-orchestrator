@@ -1,8 +1,8 @@
 # Notice
 
-All rights reserved. No license is granted, and this is not published for
-redistribution or reuse.
+Copyright (c) 2026 Liferay, Inc. All rights reserved.
 
-This repository is a generalized, sanitized extract of tooling written in the
-course of employment. The product, project names, people, tickets and data in
-it are invented for the demo.
+No license is granted. This repository is a generalized, sanitized extract of
+tooling written at Liferay, published to show the work, not for redistribution
+or reuse. The product, project names, people, tickets and data in it are
+invented for the demo.
