@@ -46,6 +46,26 @@ while the box is now idle, up to `BATCH_RETRIES` times. A job that passes on ret
 the final summary; one that keeps failing is a real issue to chase. The demo shows this: the job
 `customer-fail-once` fails on its first attempt and passes on the retry.
 
+### Empty-import check
+
+An import can report success and still leave an empty or near-empty database (a truncated archive, a
+wrong password that produced no output, a schema remap that matched nothing). The upgrade then fails
+much later with an error that points somewhere else entirely. So right after each import, the
+scheduler asks the worker for the imported table count and stops the job before the upgrade if it is
+below `BATCH_MIN_IMPORT_TABLES` (default 100; a real application schema has several hundred). The job
+lands as DID-NOT-START with `import-empty` in the summary notes and goes through the usual retry. If
+the count itself cannot be read, the job carries on: the check never blocks on its own hiccup. In the
+demo, `customer-empty-once` comes back empty on its first import and passes on the retry.
+
+### SQL Server NULL-key backfill
+
+SQL Server treats NULLs as equal in a UNIQUE index, while MySQL, PostgreSQL and Oracle allow many.
+When an upgrade adds a unique index on `(tenantId, key)` to a table whose older rows have no key, the
+same data upgrades cleanly everywhere except SQL Server, where the index fails with a duplicate-key
+error. `lib_sqlserver.sh` fixes the data right after the restore: it finds the named tables in any
+schema and gives each NULL or empty key a unique value, before the upgrade ever sees it. On a failure
+it warns and lets the import continue. `SQLSERVER_BACKFILL_NULL_KEYS=0` turns it off.
+
 ### Dump-name resolution
 
 Real dump files are named inconsistently across machines. The catalog's dump field accepts a glob, and
@@ -93,7 +113,8 @@ No Docker and no data needed. The workers are mocked, so this runs anywhere with
 # see the plan (nothing runs)
 BATCH_RUN_TS=$(date +%Y%m%d-%H%M%S) ./batch_upgrade.sh --dry-run sample.manifest
 
-# run the mock batch end to end (watch customer-fail-once fail, then pass on the retry)
+# run the mock batch end to end (watch customer-fail-once fail and customer-empty-once get stopped
+# by the empty-import check, then both pass on the retry)
 ./demo.sh
 
 # per-database status of the most recent run
@@ -107,6 +128,7 @@ BATCH_RUN_TS=$(date +%Y%m%d-%H%M%S) ./batch_upgrade.sh --dry-run sample.manifest
 | `batch_upgrade.sh` | The scheduler: budget, admission, concurrency, retry, summary. |
 | `lib_workers.sh` | Mock engine workers for the demo (the real ones are internal). |
 | `lib_dumps.sh` | Per-dump 7z password lookup and streaming decompression for compressed dumps. |
+| `lib_sqlserver.sh` | SQL Server post-restore fix-up: unique values for NULL keys before a unique index. |
 | `lib_version.sh` | Toolkit version plus commit, stamped into every run. |
 | `lib_diagnostics.sh` | Result classification and error-blurb extraction from an upgrade log. |
 | `make_manifest.sh` | Builds a run manifest from the catalog: version sets, `--only`, `--skip`, dump resolution. |

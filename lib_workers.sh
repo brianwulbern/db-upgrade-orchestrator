@@ -15,6 +15,7 @@
 #   import_sqlserver_bak <dump> <target> <logical>
 #   import_oracle_dmp <dump> <modl> <remap> <surgery>
 #   upgrade_app <folder_id> <schema> <sub_choice> <db_type>
+#   imported_table_count <engine> <target> <modl>   (prints a number; anything else = unreadable)
 # An import returns non-zero to signal IMPORT FAILED. upgrade_app writes an upgrade.log the scheduler
 # reads to classify PASS/FAIL, at <folder_id>-bundle/app/tools/db-upgrade-client/logs/upgrade.log.
 
@@ -28,6 +29,8 @@ ensure_es8() {
 
 # Real password lookup for compressed dumps (see lib_dumps.sh); only the decompression is simulated.
 source "$(dirname "${BASH_SOURCE[0]}")/lib_dumps.sh"
+# Real SQL Server post-restore fix-up (see lib_sqlserver.sh); the mock only reports it.
+source "$(dirname "${BASH_SOURCE[0]}")/lib_sqlserver.sh"
 
 _mock_import() {   # <engine> <name> [dump]
   local engine="$1" name="$2" dump="${3:-}"
@@ -45,8 +48,23 @@ _mock_import() {   # <engine> <name> [dump]
 }
 import_mysql_dump()     { _mock_import mysql "${2:-$1}" "$1"; }
 import_pg_dump()        { _mock_import postgres "${2:-$1}" "$1"; }
-import_sqlserver_bak()  { _mock_import sqlserver "${2:-$1}" "$1"; }
+import_sqlserver_bak() {
+  _mock_import sqlserver "${2:-$1}" "$1" || return
+  echo "  [mock import] sqlserver: a real restore now runs sqlserver_backfill_null_keys on ${SQLSERVER_NULL_KEY_TABLES:-ExportTask ImportTask} (simulated)"
+}
 import_oracle_dmp()     { _mock_import oracle "${2:-$1}" "$1"; }
+
+# The real worker queries the engine's catalog (information_schema, or dba_tables on Oracle). The mock
+# reports a full schema, except "customer-empty-once", whose first import comes back empty so a run
+# shows the empty-import check stopping it and the retry passing.
+imported_table_count() {
+  local engine="$1" target="$2" modl="$3"
+  if [[ "$modl" == "customer-empty-once" ]]; then
+    local marker; marker="$(_mock_state_dir)/${modl}.imported"
+    [[ ! -e "$marker" ]] && { : > "$marker"; echo 0; return; }
+  fi
+  echo 540
+}
 
 # upgrade_app <folder_id> <schema> <sub_choice> <db_type>
 # Writes the bundle log the scheduler parses. For the id "customer-fail-once" it fails on the first

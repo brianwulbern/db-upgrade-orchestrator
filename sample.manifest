@@ -9,3 +9,4 @@ mysql     | customer-e.sql          | customer_e          | customer-e          
 postgres  | customer-f.sql          | customer_f          | customer-f          | 6 | 4096 | remote | -
 mysql     | customer-fail-once.sql  | customer_fail_once  | customer-fail-once  | 7 | 4096 | remote | -
 postgres  | customer-g.sql          | customer_g          | customer-g          | 8 | 6144 | remote | -
+mysql     | customer-empty-once.sql | customer_empty_once | customer-empty-once | 9 | 4096 | remote | -

@@ -409,6 +409,22 @@ dry_run() {
 # by the caller to the job's console.log. Returns 90 if the IMPORT worker fails (=>
 # DID-NOT-START), otherwise the upgrade step's own return code.
 #   args: engine dump target modl heap slot alter bool logical remap surgery
+# Exit 91: the import "succeeded" but left (almost) no tables, so the upgrade would fail later
+# with a misleading error. BATCH_MIN_IMPORT_TABLES=0 disables; an unreadable count never blocks.
+check_import_not_empty() {
+  local engine="$1" target="$2" modl="$3" min="${BATCH_MIN_IMPORT_TABLES:-100}" n
+  [[ "$min" -gt 0 ]] || return 0
+  n="$(imported_table_count "$engine" "$target" "$modl")"
+  if [[ ! "$n" =~ ^[0-9]+$ ]]; then
+    echo "  [import-check] could not count tables in $engine/$target; continuing"
+    return 0
+  fi
+  echo "  [import-check] $engine/$target has $n tables (minimum $min)"
+  [[ "$n" -ge "$min" ]] && return 0
+  echo "IMPORT EMPTY ($engine/$modl): $n tables in $target, expected at least $min"
+  return 91
+}
+
 run_job() {
   # The sourced upgrade library was written for the interactive shell (no `set -u`) and
   # references optional vars (e.g. JDK21_HOME) unguarded. Job bodies therefore run with
@@ -433,19 +449,23 @@ run_job() {
   case "$engine" in
     mysql)
       import_mysql_dump "$dump" "$target" "$alter" || { echo "IMPORT FAILED (mysql/$modl)"; return 90; }
+      check_import_not_empty mysql "$target" "$modl" || return 91
       upgrade_app "$modl" "$target" "$slot" mysql
       ;;
     postgres)
       import_pg_dump "$dump" "$target" "$alter" "$bool" || { echo "IMPORT FAILED (postgres/$modl)"; return 90; }
+      check_import_not_empty postgres "$target" "$modl" || return 91
       upgrade_app "$modl" "$target" "$slot" postgres
       ;;
     sqlserver)
       import_sqlserver_bak "$dump" "$target" "$logical" || { echo "IMPORT FAILED (sqlserver/$modl)"; return 90; }
+      check_import_not_empty sqlserver "$target" "$modl" || return 91
       upgrade_app "$target" "$target" "$slot" sqlserver
       ;;
     oracle)
       export FORCE_ORACLE_WIPE=1     # fresh import each; oracle-cap=1 makes wipe-between safe
       import_oracle_dmp "$dump" "$modl" "$remap" "$surgery" || { echo "IMPORT FAILED (oracle/$modl)"; return 90; }
+      check_import_not_empty oracle APPDB "$modl" || return 91
       upgrade_app "$modl" "APPDB" "$slot" oracle
       ;;
     *)
@@ -512,7 +532,7 @@ post_process_job() {
   gen_report="$tool_dir/reports/upgrade_report.info"
 
   # Result: exit 90 means the import failed and the upgrade never ran.
-  if [[ "$rc" == "90" ]]; then
+  if [[ "$rc" == "90" || "$rc" == "91" ]]; then
     result="DID-NOT-START"
   else
     result="$(extract_upgrade_result "$up_log")"
@@ -566,6 +586,8 @@ post_process_job() {
   fi
 
   note="rc=$rc; ${elapsed}s; bundle-$kept"
+
+  [[ "$rc" == "91" ]] && note="import-empty; $note"
   record_result "$modl" "$engine" "$result" "$note"   # overwrites on a retry pass; tallies recomputed in write_summary
   echo "  [reap] $modl ($engine) -> $result  ($note)"
 
@@ -681,7 +703,7 @@ write_summary() {
     done
     echo "----------------------------------------------------------------"
     echo "Tally: ${PASS_N} passed / ${FAIL_N} failed / ${NOSTART_N} did-not-start"
-    echo "  (did-not-start = import worker returned non-zero; upgrade never ran)"
+    echo "  (did-not-start = import failed or left an empty DB (import-empty); upgrade never ran)"
     echo "================================================================"
   } | tee "$out"
 

@@ -5,7 +5,8 @@
 # off the real-available-RAM cap (BATCH_RAM_REALCAP=0) so the schedule follows the modeled budget
 # instead of whatever this laptop happens to have free, and we turn off the Docker-based hygiene and
 # spin-down steps (there are no containers). BATCH_RETRIES=1 exercises the auto-retry cycle: the
-# job "customer-fail-once" fails on its first attempt and passes on the retry.
+# job "customer-fail-once" fails on its first attempt and passes on the retry, and "customer-empty-once"
+# is stopped by the empty-import check on its first import and passes on the retry.
 set -uo pipefail
 cd "$(dirname "$0")"
 export BATCH_RUN_TS="${BATCH_RUN_TS:-$(date +%Y%m%d-%H%M%S)}"
