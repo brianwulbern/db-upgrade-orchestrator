@@ -9,6 +9,7 @@
 # Guard: it will NOT launch while another batch is running — two separate batch processes do
 # not share the Oracle "max 1" cap, so overlapping runs could put two Oracle upgrades on the
 # box at once. (--dry-run still shows the plan while a run is in flight.)
+(( BASH_VERSINFO[0] >= 4 )) || { echo "$(basename "$0") needs bash 4 or newer (this is $BASH_VERSION). On macOS: brew install bash." >&2; exit 2; }
 set -uo pipefail
 cd "$(dirname "$0")"
 

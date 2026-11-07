@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # batch_upgrade.sh — headless, RAM-budgeted batch scheduler for Database Upgrades.
 #
@@ -16,9 +16,15 @@
 # ---------------------------------------------------------------------------------
 # RAM MODEL (all values MB, all overridable via env)
 # ---------------------------------------------------------------------------------
-#   total   = MemTotal from /proc/meminfo (kB -> MB)
+#   total   = the machine's RAM (lib_platform.sh: /proc/meminfo on Linux, sysctl on macOS)
 #   RESERVE = BATCH_RAM_RESERVE_MB           (default 6000)  headroom for the OS/host
 #   BUDGET  = BATCH_RAM_BUDGET_MB            (default total - RESERVE)
+#
+#   macOS: Docker Desktop runs every container in a VM with a fixed memory size, so there are two
+#   pools. Engine reservations (es8 + DB engines) are admitted against DOCKER BUDGET = Docker's
+#   memory - 1000 (BATCH_DOCKER_BUDGET_MB), and job costs (upgrade JVMs, on the Mac itself) against
+#   JOB BUDGET = total - Docker's memory - RESERVE (BATCH_JOB_BUDGET_MB). Setting
+#   BATCH_RAM_BUDGET_MB on macOS goes back to the single pool.
 #
 #   Per-JOB cost      = heap + BATCH_JOB_OVERHEAD_MB (default 1500)   [upgrade JVM + tomcat noise]
 #   Per-ENGINE reservation (charged ONCE when an engine is first activated, then held
@@ -97,18 +103,39 @@ WORKER_LIB="$SCRIPT_DIR/lib_workers.sh"
 DIAG_LIB="$SCRIPT_DIR/lib_diagnostics.sh"
 RUN_DIR="$SCRIPT_DIR/batch-runs/$BATCH_RUN_TS"
 
+source "$SCRIPT_DIR/lib_platform.sh"
+plat_require_bash4
+
 # Toolkit version plus the commit it ran from, so every run records which logic produced its results.
 source "$SCRIPT_DIR/lib_version.sh"
 TOOLKIT_ID="$(toolkit_id)"
 
 # ------------------------------------------------------------------ RAM / caps config
-_memtotal_kb="$(awk '/^MemTotal:/ {print $2}' /proc/meminfo 2>/dev/null)"
-[[ -z "$_memtotal_kb" ]] && _memtotal_kb=0
-TOTAL_RAM_MB=$(( _memtotal_kb / 1024 ))
+TOTAL_RAM_MB="$(plat_total_mem_mb)"
+[[ -z "$TOTAL_RAM_MB" ]] && TOTAL_RAM_MB=0
 
 RESERVE_MB="${BATCH_RAM_RESERVE_MB:-6000}"
 JOB_OVERHEAD_MB="${BATCH_JOB_OVERHEAD_MB:-1500}"
 BUDGET_MB="${BATCH_RAM_BUDGET_MB:-$(( TOTAL_RAM_MB - RESERVE_MB ))}"
+
+DOCKER_MEM_MB="" DOCKER_BUDGET_MB="" JOB_BUDGET_MB=""
+if plat_is_mac && [[ -z "${BATCH_RAM_BUDGET_MB:-}" ]]; then
+  DOCKER_MEM_MB="$(plat_docker_mem_mb)"
+  if (( DOCKER_MEM_MB > 0 )); then
+    DOCKER_BUDGET_MB="${BATCH_DOCKER_BUDGET_MB:-$(( DOCKER_MEM_MB - 1000 ))}"
+    JOB_BUDGET_MB="${BATCH_JOB_BUDGET_MB:-$(( TOTAL_RAM_MB - DOCKER_MEM_MB - RESERVE_MB ))}"
+    BUDGET_MB=$(( DOCKER_BUDGET_MB + JOB_BUDGET_MB ))
+  fi
+fi
+
+# fits_budget <committed_jobs> <engine_reserved> <job_cost> <new_engine_reservation>
+fits_budget() {
+  if [[ -n "$DOCKER_BUDGET_MB" ]]; then
+    (( $1 + $3 <= JOB_BUDGET_MB && $2 + $4 <= DOCKER_BUDGET_MB ))
+  else
+    (( $1 + $2 + $3 + $4 <= BUDGET_MB ))
+  fi
+}
 
 ES8_RES="${BATCH_ES8_RESERVE_MB:-2500}"
 declare -A ENGINE_RES=(
@@ -292,7 +319,13 @@ print_budget_header() {
   echo " manifest          : $MANIFEST"
   echo " total host RAM    : ${TOTAL_RAM_MB} MB"
   echo " reserve (host)    : ${RESERVE_MB} MB"
-  echo " BUDGET            : ${BUDGET_MB} MB"
+  if [[ -n "$DOCKER_BUDGET_MB" ]]; then
+    echo " Docker memory     : ${DOCKER_MEM_MB} MB (macOS: engines run in Docker's VM)"
+    echo " DOCKER BUDGET     : ${DOCKER_BUDGET_MB} MB (es8 + DB engine reservations)"
+    echo " JOB BUDGET        : ${JOB_BUDGET_MB} MB (upgrade JVMs: total - Docker - reserve)"
+  else
+    echo " BUDGET            : ${BUDGET_MB} MB"
+  fi
   echo " per-job overhead  : ${JOB_OVERHEAD_MB} MB (added to each job's heap)"
   echo " engine reservations (held for the whole run once activated):"
   echo "     es8=${ES8_RES} (reserved at startup, always)  mysql=${ENGINE_RES[mysql]}  postgres=${ENGINE_RES[postgres]}  sqlserver=${ENGINE_RES[sqlserver]}  oracle=${ENGINE_RES[oracle]}"
@@ -359,7 +392,7 @@ dry_run() {
       # budget
       extra_engine=0
       [[ -z "${sim_active[$eng]:-}" ]] && extra_engine="${ENGINE_RES[$eng]}"
-      if (( sim_committed + sim_engine_reserved + cost + extra_engine > BUDGET_MB )); then
+      if ! fits_budget "$sim_committed" "$sim_engine_reserved" "$cost" "$extra_engine"; then
         next_pending+=("$idx"); continue
       fi
 
@@ -379,13 +412,18 @@ dry_run() {
     if [[ ${#wave_lines[@]} -eq 0 ]]; then
       echo "  !! Cannot schedule the remaining ${#pending[@]} job(s) under the current"
       echo "     budget/caps (largest remaining exceeds BUDGET even alone). Remaining:"
+      [[ -n "$DOCKER_BUDGET_MB" ]] && echo "     (macOS: a new engine's reservation must also fit in Docker's memory; raise it in Docker Desktop, Settings, Resources)"
       for idx in "${pending[@]}"; do
         echo "        - ${J_MODL[$idx]} (${J_ENGINE[$idx]}, cost=$(job_cost "${J_HEAP[$idx]}"))"
       done
       break
     fi
 
-    echo "  --- Wave $wave  (running RAM = committed ${sim_committed} + reserved ${sim_engine_reserved} = $(( sim_committed + sim_engine_reserved )) / ${BUDGET_MB} MB) ---"
+    if [[ -n "$DOCKER_BUDGET_MB" ]]; then
+      echo "  --- Wave $wave  (jobs ${sim_committed} / ${JOB_BUDGET_MB} MB, engines ${sim_engine_reserved} / ${DOCKER_BUDGET_MB} MB in Docker) ---"
+    else
+      echo "  --- Wave $wave  (running RAM = committed ${sim_committed} + reserved ${sim_engine_reserved} = $(( sim_committed + sim_engine_reserved )) / ${BUDGET_MB} MB) ---"
+    fi
     [[ -n "$wave_new_engines" ]] && echo "      engines activated this wave: $wave_new_engines"
     local l
     for l in "${wave_lines[@]}"; do echo "$l"; done
@@ -631,8 +669,7 @@ can_admit() {
   [[ $eng_run -ge $cap ]] && return 1
   local extra_engine=0
   [[ -z "${ACTIVE_ENGINE[$eng]:-}" ]] && extra_engine="${ENGINE_RES[$eng]}"
-  (( COMMITTED_JOBS + ENGINE_RESERVED_TOTAL + cost + extra_engine > BUDGET_MB )) && return 1
-  return 0
+  fits_budget "$COMMITTED_JOBS" "$ENGINE_RESERVED_TOTAL" "$cost" "$extra_engine"
 }
 
 admit_job() {
@@ -672,7 +709,11 @@ admit_job() {
   RUN_START[$pid]="$SECONDS"
   RUN_LOG[$pid]="$console"
 
-  echo "  [admit] $modl ($engine) slot=$slot cost=${cost}  | running=${#RUN_MODL[@]} committed=${COMMITTED_JOBS} reserved=${ENGINE_RESERVED_TOTAL} / ${BUDGET_MB} MB"
+  if [[ -n "$DOCKER_BUDGET_MB" ]]; then
+    echo "  [admit] $modl ($engine) slot=$slot cost=${cost}  | running=${#RUN_MODL[@]} jobs=${COMMITTED_JOBS}/${JOB_BUDGET_MB} engines=${ENGINE_RESERVED_TOTAL}/${DOCKER_BUDGET_MB} MB"
+  else
+    echo "  [admit] $modl ($engine) slot=$slot cost=${cost}  | running=${#RUN_MODL[@]} committed=${COMMITTED_JOBS} reserved=${ENGINE_RESERVED_TOTAL} / ${BUDGET_MB} MB"
+  fi
 }
 
 write_summary() {
@@ -766,7 +807,7 @@ drain_queue() {
       else
         [[ $STOP -ne 0 ]] && break             # interrupted, none running
         for i in "${pending[@]}"; do
-          echo "  [skip] ${J_MODL[$i]} (${J_ENGINE[$i]}) — never fits BUDGET/caps; marking did-not-start."
+          echo "  [skip] ${J_MODL[$i]} (${J_ENGINE[$i]}) — never fits BUDGET/caps$([[ -n "$DOCKER_BUDGET_MB" ]] && echo " (or Docker's memory)"); marking did-not-start."
           record_result "${J_MODL[$i]}" "${J_ENGINE[$i]}" "DID-NOT-START" "over-budget/caps; not launched"
         done
         pending=(); break
@@ -791,6 +832,11 @@ real_run() {
   # shellcheck disable=SC1090
   source "$DIAG_LIB"
 
+  if plat_is_mac && command -v caffeinate >/dev/null; then
+    caffeinate -u -t 2 >/dev/null 2>&1
+    caffeinate -i -s -w $$ >/dev/null 2>&1 &
+  fi
+
   mkdir -p "$RUN_DIR"
   # Snapshot the resolved manifest into the run dir so a status reporter (status_batch.sh) can
   # show the FULL roster while the run is in flight — including DBs not yet admitted (QUEUED),
@@ -808,8 +854,12 @@ real_run() {
   # what's actually free so we don't over-admit into a host OOM (the an earlier full run lesson). One-time and
   # deterministic; the existing admit math then respects real memory. Opt-out: BATCH_RAM_REALCAP=0.
   if [[ "${BATCH_RAM_REALCAP:-1}" == "1" ]]; then
-    local real_avail_mb; real_avail_mb="$(awk '/MemAvailable/{print int($2/1024)}' /proc/meminfo 2>/dev/null || echo 0)"
-    if (( real_avail_mb > 0 )); then
+    local real_avail_mb; real_avail_mb="$(plat_avail_mem_mb)"
+    if [[ -n "$JOB_BUDGET_MB" ]] && (( real_avail_mb > 0 && real_avail_mb < JOB_BUDGET_MB )); then
+      echo " ⚠️  real available RAM ${real_avail_mb} MB < modeled JOB BUDGET ${JOB_BUDGET_MB} MB — capping JOB BUDGET to ${real_avail_mb} MB (other apps are using memory outside Docker)"
+      JOB_BUDGET_MB=$real_avail_mb
+      BUDGET_MB=$(( DOCKER_BUDGET_MB + JOB_BUDGET_MB ))
+    elif [[ -z "$JOB_BUDGET_MB" ]] && (( real_avail_mb > 0 )); then
       local real_budget=$(( real_avail_mb - ES8_RES ))
       if (( real_budget < BUDGET_MB )); then
         echo " ⚠️  real available RAM ${real_avail_mb} MB < modeled BUDGET ${BUDGET_MB} MB — capping BUDGET to ${real_budget} MB (external memory pressure; consider freeing the box)"
@@ -905,6 +955,7 @@ real_run() {
       fi
     done
   fi
+
 }
 
 # ==================================================================================

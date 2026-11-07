@@ -29,6 +29,7 @@
 #   --skip x1,x2      : drop entries whose ENGINE (field 1) OR modl (field 4) matches. So
 #                       `--skip oracle` drops every Oracle DB without listing the rest, and
 #                       `--skip oracle,customer-e` also drops that modl. Useful for perf runs.
+(( BASH_VERSINFO[0] >= 4 )) || { echo "$(basename "$0") needs bash 4 or newer (this is $BASH_VERSION). On macOS: brew install bash." >&2; exit 2; }
 set -uo pipefail
 cd "$(dirname "$0")"
 

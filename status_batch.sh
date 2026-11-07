@@ -13,6 +13,8 @@
 # is FINISHED and we show that final table verbatim.
 set -uo pipefail
 cd "$(dirname "$0")"
+source ./lib_platform.sh
+plat_require_bash4
 
 ONELINE=0
 args=()
@@ -44,7 +46,7 @@ if [[ -n "$roster_src" ]]; then
   done < <(grep -vE '^\s*#|^\s*$' "$roster_src")
 fi
 
-started="$(date -d "${RUN_TS:0:4}-${RUN_TS:4:2}-${RUN_TS:6:2} ${RUN_TS:9:2}:${RUN_TS:11:2}:${RUN_TS:13:2}" +%s 2>/dev/null || echo "")"
+started="$(plat_epoch "${RUN_TS:0:4}-${RUN_TS:4:2}-${RUN_TS:6:2} ${RUN_TS:9:2}:${RUN_TS:11:2}:${RUN_TS:13:2}")"
 FINISHED=0; [[ -f "$RUN_DIR/summary.txt" ]] && FINISHED=1
 
 # ---- per-DB state from the run dir --------------------------------------------------------------
@@ -106,8 +108,8 @@ echo " batch run : $RUN_TS"
 [[ -r "$RUN_DIR/toolkit.txt" ]] && echo " toolkit   : $(cat "$RUN_DIR/toolkit.txt")"
 if [[ "$FINISHED" == 1 ]]; then
   if [[ -n "$started" ]]; then
-    end="$(stat -c %Y "$RUN_DIR/summary.txt" 2>/dev/null || echo "")"
-    [[ -n "$end" ]] && echo " duration  : $(( (end - started) / 60 )) min (completed $(date -d "@$end" '+%H:%M'))"
+    end="$(plat_mtime "$RUN_DIR/summary.txt")"
+    [[ -n "$end" ]] && echo " duration  : $(( (end - started) / 60 )) min (completed $(plat_fmt_epoch "$end" '%H:%M'))"
   fi
   echo " state     : ✅ finished"
 elif [[ "$STATE_WORD" == "running" ]]; then

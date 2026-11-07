@@ -31,6 +31,15 @@ overhead) fits the remaining budget. Engine reservations are charged once and he
 `--dry-run` prints the plan as admission "waves" without starting anything, so you can see how a batch
 will schedule before committing to it.
 
+### Linux and macOS
+
+The same scripts run on Linux and macOS (bash 4 or newer; on a Mac, `brew install bash`). The few
+things that differ between the two, such as reading total and free memory, file times and date math,
+live in `lib_platform.sh`. On macOS the budget splits into two pools, because Docker Desktop runs
+every container inside a VM with a fixed memory size: engine reservations are admitted against
+Docker's memory, and the upgrade JVMs, which run on the Mac itself, against what is left of the
+host. A batch also keeps the Mac awake until it finishes.
+
 ### Per-engine concurrency caps
 
 Global concurrency is capped (default 3), and each engine has its own cap on top of that. Oracle is
@@ -107,7 +116,7 @@ failure triage that fingerprints failures into a report, with no LLM or tokens i
 
 ## Try the demo
 
-No Docker and no data needed. The workers are mocked, so this runs anywhere with bash.
+No Docker and no data needed. The workers are mocked, so this runs on Linux or macOS with bash 4 or newer.
 
 ```bash
 # see the plan (nothing runs)
@@ -129,6 +138,7 @@ BATCH_RUN_TS=$(date +%Y%m%d-%H%M%S) ./batch_upgrade.sh --dry-run sample.manifest
 | `lib_workers.sh` | Mock engine workers for the demo (the real ones are internal). |
 | `lib_dumps.sh` | Per-dump 7z password lookup and streaming decompression for compressed dumps. |
 | `lib_sqlserver.sh` | SQL Server post-restore fix-up: unique values for NULL keys before a unique index. |
+| `lib_platform.sh` | The Linux and macOS differences: memory, file times, date math, a bash 4 check. |
 | `lib_version.sh` | Toolkit version plus commit, stamped into every run. |
 | `lib_diagnostics.sh` | Result classification and error-blurb extraction from an upgrade log. |
 | `make_manifest.sh` | Builds a run manifest from the catalog: version sets, `--only`, `--skip`, dump resolution. |
