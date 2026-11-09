@@ -34,7 +34,10 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib_sqlserver.sh"
 
 _mock_import() {   # <engine> <name> [dump]
   local engine="$1" name="$2" dump="${3:-}"
-  if [[ "$dump" == *.7z ]]; then
+  [[ -n "$dump" ]] && dump="$(dump_path "$dump")"
+  if [[ "$dump" == *.zst ]]; then
+    echo "  [mock import] $engine: '$dump' is zstd-compressed; a real import streams it with zstd -dc (simulated)"
+  elif [[ "$dump" == *.7z ]]; then
     local pv; pv="$(sevenz_pw_var "$dump")"
     if [[ -n "$pv" ]]; then
       echo "  [mock import] $engine: '$dump' is a 7z archive; password from \$$pv (decompression simulated)"

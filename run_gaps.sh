@@ -60,7 +60,9 @@ for m in "${CAT[@]}"; do
   [[ "${LATEST[$m]:-NEVER-RUN}" == PASS ]] && continue
   line="$(grep -hE "\|[[:space:]]*${m}[[:space:]]*\|" ./*.manifest 2>/dev/null | grep -vE '^\s*#' | head -1)"
   dump="$(awk -F'|' 'NF>=2{gsub(/^[ \t]+|[ \t]+$/,"",$2); print $2}' <<<"$line")"
-  if [[ -n "$dump" && -f "$dump" ]]; then gaps+=("$m"); else nodump+=("$m"); fi
+  have=0
+  for f in "$dump" "$dump".{7z,gz,zip,zst}; do [[ -n "$dump" && -f "$f" ]] && have=1; done
+  if (( have )); then gaps+=("$m"); else nodump+=("$m"); fi
 done
 ((${#nodump[@]})) && echo "ℹ️  skipping ${#nodump[@]} not-green DB(s) with no dump present: ${nodump[*]}"
 if [[ ${#gaps[@]} -eq 0 ]]; then

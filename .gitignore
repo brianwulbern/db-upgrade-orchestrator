@@ -13,3 +13,4 @@ dumps.local
 *.dmp
 *.gz
 *.7z
+*.zst

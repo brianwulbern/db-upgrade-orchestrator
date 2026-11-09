@@ -12,6 +12,12 @@
 #
 # With no password, 7z fails fast (stdin is /dev/null) instead of hanging on a prompt.
 
+# dump_path <file>: the file itself, or <file>.zst when only the zstd-compressed copy is on disk, so a
+# menu or catalog that names foo.sql still finds foo.sql.zst.
+dump_path() {
+    if [[ ! -f "$1" && -f "$1.zst" ]]; then printf '%s' "$1.zst"; else printf '%s' "$1"; fi
+}
+
 # sevenz_pw_var <file>: print the NAME of the variable that holds this archive's password ("" if none).
 sevenz_pw_var() {
     local file v key best="" bestkey=""

@@ -82,9 +82,14 @@ a git-ignored `dumps.local` file lets each machine map a database id to its actu
 editing the shared catalog. A name that matches nothing is reported, and a glob that matches more than
 one file is reported as ambiguous rather than guessed.
 
-Dumps also arrive still compressed. If the catalog names `foo.sql` and only `foo.sql.7z`, `.gz` or
-`.zip` is present (or `foo.bak.7z` for a SQL Server backup), the compressed file is used as-is and
-streamed into the database, so nobody has to extract or rename anything first.
+Dumps also arrive still compressed. If the catalog names `foo.sql` and only `foo.sql.7z`, `.gz`,
+`.zip` or `.zst` is present (or `foo.bak.7z` / `foo.bak.zst` for a SQL Server backup, `foo.dmp.zst` for
+an Oracle export), the compressed file is used as-is and streamed into the database, so nobody has to
+extract or rename anything first.
+
+Storing dumps as zstd is the cheap way to save disk. Plain SQL dumps and SQL Server backups shrink by
+85 to 99%, and zstd decompresses at several GB/s, far faster than any engine imports rows, so a
+compressed dump imports as fast as an uncompressed one.
 
 ### Password-protected dumps
 

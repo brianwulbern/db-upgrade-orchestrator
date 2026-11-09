@@ -75,11 +75,11 @@ resolve_dump() {
   ov="${OVERRIDE[$(lc "$modl")]:-}"
   [[ -n "$ov" ]] && pat="$ov"
   [[ -f "$pat" ]] && { printf '%s' "$pat"; return 0; }
-  # A dump may be downloaded still compressed: foo.sql.7z / .gz / .zip (the MySQL and Postgres
-  # importers stream all three) or foo.bak.7z (the SQL Server restore streams it into the
-  # container). Accept the compressed copy as-is.
+  # A dump may be stored compressed: foo.sql.7z / .gz / .zip / .zst (the MySQL and Postgres
+  # importers stream all four), foo.bak.7z / .zst (the SQL Server restore streams it into the
+  # container) or foo.dmp.zst (decompressed into the Oracle container). Accept the compressed copy as-is.
   local ext exts=()
-  case "$pat" in *.sql) exts=(7z gz zip) ;; *.bak) exts=(7z) ;; esac
+  case "$pat" in *.sql) exts=(7z gz zip zst) ;; *.bak) exts=(7z zst) ;; *.dmp) exts=(zst) ;; esac
   for ext in "${exts[@]}"; do
     [[ -f "$pat.$ext" ]] && { printf '%s' "$pat.$ext"; return 0; }
   done
@@ -88,7 +88,7 @@ resolve_dump() {
   if [[ "$pat" == *[\*\?\[]* ]]; then
     local -a m; shopt -s nullglob; m=( $pat )
     if (( ${#m[@]} == 0 )); then
-      case "$pat" in *.sql) m=( $pat.7z $pat.gz $pat.zip ) ;; *.bak) m=( $pat.7z ) ;; esac
+      case "$pat" in *.sql) m=( $pat.7z $pat.gz $pat.zip $pat.zst ) ;; *.bak) m=( $pat.7z $pat.zst ) ;; *.dmp) m=( $pat.zst ) ;; esac
     fi
     shopt -u nullglob
     case ${#m[@]} in
