@@ -75,6 +75,15 @@ error. `lib_sqlserver.sh` fixes the data right after the restore: it finds the n
 schema and gives each NULL or empty key a unique value, before the upgrade ever sees it. On a failure
 it warns and lets the import continue. `SQLSERVER_BACKFILL_NULL_KEYS=0` turns it off.
 
+### Disk watch
+
+Disk runs out as quietly as memory does: a full disk mid-import crashes the database engine instead of
+failing the job cleanly. The scheduler checks free disk on every pass of its loop, writes it to the run
+log and `batch-runs/<ts>/disk.log` every 5 minutes (`BATCH_DISK_LOG_SECS`), and when free disk drops
+below `BATCH_MIN_FREE_GB` (default 25) it stops admitting jobs the same way Ctrl-C does. Running jobs
+finish, queued ones are recorded did-not-start with the reason, and the summary is written as usual.
+The log also records how low disk went, so the next batch can be sized from a real number.
+
 ### Dump-name resolution
 
 Real dump files are named inconsistently across machines. The catalog's dump field accepts a glob, and

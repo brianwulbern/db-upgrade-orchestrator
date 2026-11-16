@@ -522,6 +522,7 @@ COMMITTED_JOBS=0
 declare -a SUMMARY_ROWS=()
 PASS_N=0; FAIL_N=0; NOSTART_N=0
 STOP=0
+STOP_REASON="interrupted"
 
 # Result store, keyed by modl, so a retry pass OVERWRITES a job's result (latest attempt wins)
 # rather than appending a duplicate row. write_summary rebuilds SUMMARY_ROWS + tallies from this.
@@ -782,10 +783,35 @@ write_summary() {
 # currently-eligible job (respecting MAX_CONC, per-engine caps, and BUDGET), reap finished ones,
 # repeat until nothing is queued or running. Jobs that can never fit, or are left queued when the
 # run is interrupted, are recorded DID-NOT-START. Factored out of real_run so retry passes reuse it.
+# disk_watch: logs free disk every BATCH_DISK_LOG_SECS (default 300) to the run log and disk.log, and
+# stops admitting jobs (like Ctrl-C: running jobs finish) when free disk drops below BATCH_MIN_FREE_GB.
+DISK_LOG_SECS="${BATCH_DISK_LOG_SECS:-300}"
+MIN_FREE_GB="${BATCH_MIN_FREE_GB:-25}"
+DISK_LAST=0
+DISK_MIN=""
+disk_watch() {
+  local free now
+  free="$(df -Pk "$SCRIPT_DIR" | awk 'NR == 2 { print int($4 / 1048576) }')"
+  [[ -z "$DISK_MIN" || "$free" -lt "$DISK_MIN" ]] && DISK_MIN="$free"
+  now="$(date +%s)"
+  if (( now - DISK_LAST >= DISK_LOG_SECS )); then
+    DISK_LAST="$now"
+    echo "$(date '+%H:%M:%S') ${free} GB free, ${#RUN_MODL[@]} job(s) running" >> "$RUN_DIR/disk.log"
+    echo "  [disk] ${free} GB free (lowest ${DISK_MIN} GB)"
+  fi
+  if (( STOP == 0 && free < MIN_FREE_GB )); then
+    STOP=1
+    STOP_REASON="stopped at ${free} GB free disk"
+    echo "[batch] only ${free} GB of disk left (BATCH_MIN_FREE_GB=${MIN_FREE_GB}): no new jobs will be admitted; letting running jobs finish."
+    echo "$(date '+%H:%M:%S') STOP: ${free} GB free, below ${MIN_FREE_GB}" >> "$RUN_DIR/disk.log"
+  fi
+}
+
 drain_queue() {
   local i eng cost progressed
   local -a still_pending
   while [[ ${#pending[@]} -gt 0 || ${#RUN_MODL[@]} -gt 0 ]]; do
+    disk_watch
     progressed=0
     still_pending=()
     if [[ $STOP -eq 0 ]]; then
@@ -817,7 +843,7 @@ drain_queue() {
   # interrupted with jobs still queued
   if [[ ${#pending[@]} -gt 0 ]]; then
     for i in "${pending[@]}"; do
-      record_result "${J_MODL[$i]}" "${J_ENGINE[$i]}" "DID-NOT-START" "interrupted before launch"
+      record_result "${J_MODL[$i]}" "${J_ENGINE[$i]}" "DID-NOT-START" "batch ${STOP_REASON} before launch"
     done
     pending=()
   fi
@@ -846,7 +872,7 @@ real_run() {
   # can scope "is every DB green?" to a specific release instead of mixing q3.1 / q3.2.
   detect_bundle_version > "$RUN_DIR/version.txt" 2>/dev/null || true
   echo "$TOOLKIT_ID" > "$RUN_DIR/toolkit.txt"
-  # Record the JIRA parent validation Task so `./jira_reconcile.sh` at the end is zero-friction.
+  # Record the parent validation task so an end-of-run reconcile step can find it.
   [[ -n "${BATCH_JIRA_TASK:-}" ]] && echo "$BATCH_JIRA_TASK" > "$RUN_DIR/jira_task.txt"
   print_budget_header
   # HARDENING (#3): the modeled BUDGET assumes a clean box. If real available RAM is lower — an
@@ -887,6 +913,8 @@ real_run() {
   local i
   local -A IDX_OF=()
   for (( i=0; i<${#J_MODL[@]}; i++ )); do IDX_OF["${J_MODL[$i]}"]="$i"; done
+
+  disk_watch
 
   # ---- initial pass: queue every job (manifest order) and run it ----
   pending=()
